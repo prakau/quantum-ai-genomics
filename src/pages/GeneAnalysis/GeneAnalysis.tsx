@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -12,46 +12,122 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
+  Alert,
+  LinearProgress,
 } from '@mui/material';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 import { GeneAssembly } from '../../types';
+import { usePipeline, useGenomicAnalyses } from '../../hooks/usePipeline';
+import { mockGeneAssemblies } from '../../data/mockData';
 
-const mockGeneAssemblies: GeneAssembly[] = [
-  {
-    id: '1',
-    name: 'Enhanced Drought Assembly v1',
-    components: ['DREB1A', 'HSF3', 'ABA1'],
-    predictedPerformance: {
-      stressTolerance: 0.85,
-      growthRate: 0.92,
-      yield: 0.88,
-    },
-    validationStatus: 'validated',
-    createdAt: '2025-02-28T10:00:00Z',
-    updatedAt: '2025-02-28T14:30:00Z',
+const defaultExperimentConfig = {
+  id: Math.random().toString(36).substr(2, 9),
+  name: 'Gene Analysis Experiment',
+  environmentalParams: {
+    temperature: 25,
+    humidity: 60,
+    soilConditions: 'Controlled',
   },
-  {
-    id: '2',
-    name: 'Salt Resistance Assembly v2',
-    components: ['SOS1', 'NHX1', 'HKT1'],
-    predictedPerformance: {
-      stressTolerance: 0.78,
-      growthRate: 0.85,
-      yield: 0.82,
-    },
-    validationStatus: 'in_progress',
-    createdAt: '2025-02-28T11:00:00Z',
-    updatedAt: '2025-02-28T15:30:00Z',
-  },
-];
+  duration: 30,
+  samplingFrequency: 24,
+  baselineGenotypes: ['WT-Col-0'],
+  targetTraits: ['stress_tolerance', 'growth_rate'],
+};
 
 const GeneAnalysis: React.FC = () => {
   const [selectedAssembly, setSelectedAssembly] = useState<string>('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const { startPipeline, isProcessing, error, clearError } = usePipeline();
+  const analysisResults = useGenomicAnalyses();
 
-  const handleAnalyze = () => {
-    setIsAnalyzing(true);
-    // Simulate analysis process
-    setTimeout(() => setIsAnalyzing(false), 2000);
+  const handleAnalyze = useCallback(async () => {
+    if (!selectedAssembly) return;
+
+    const assembly = mockGeneAssemblies.find(a => a.id === selectedAssembly);
+    if (!assembly) return;
+
+    await startPipeline({
+      experimentConfig: {
+        ...defaultExperimentConfig,
+        name: `Analysis of ${assembly.name}`,
+      },
+      assembly,
+    });
+  }, [selectedAssembly, startPipeline]);
+
+  const renderAnalysisResults = () => {
+    if (!analysisResults.length) return null;
+
+    const latestResult = analysisResults[analysisResults.length - 1];
+    const geneExpressionData = latestResult.metrics.geneExpression.map((value, index) => ({
+      time: `T${index}`,
+      expression: value,
+    }));
+
+    return (
+      <Card sx={{ mt: 3 }}>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>
+            Analysis Results
+          </Typography>
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Typography variant="subtitle2">Gene Expression Levels</Typography>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={geneExpressionData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="time" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="expression"
+                    stroke="#8884d8"
+                    name="Expression Level"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Regulatory Elements
+              </Typography>
+              {latestResult.metrics.regulatoryElements.map((element, index) => (
+                <Typography key={index} variant="body2">
+                  • {element}
+                </Typography>
+              ))}
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Pathway Enrichment
+              </Typography>
+              {latestResult.metrics.pathwayEnrichment.map((pathway, index) => (
+                <Box key={index} sx={{ mb: 1 }}>
+                  <Typography variant="body2">
+                    {pathway.pathway}: {(pathway.score * 100).toFixed(1)}%
+                  </Typography>
+                  <LinearProgress
+                    variant="determinate"
+                    value={pathway.score * 100}
+                    sx={{ height: 8, borderRadius: 4 }}
+                  />
+                </Box>
+              ))}
+            </Grid>
+          </Grid>
+        </CardContent>
+      </Card>
+    );
   };
 
   return (
@@ -59,6 +135,12 @@ const GeneAnalysis: React.FC = () => {
       <Typography variant="h4" gutterBottom>
         Gene Analysis
       </Typography>
+
+      {error && (
+        <Alert severity="error" onClose={clearError} sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={4}>
@@ -84,47 +166,15 @@ const GeneAnalysis: React.FC = () => {
               variant="contained"
               fullWidth
               onClick={handleAnalyze}
-              disabled={!selectedAssembly || isAnalyzing}
+              disabled={!selectedAssembly || isProcessing}
             >
-              {isAnalyzing ? <CircularProgress size={24} /> : 'Analyze Assembly'}
+              {isProcessing ? <CircularProgress size={24} /> : 'Analyze Assembly'}
             </Button>
           </Paper>
         </Grid>
 
         <Grid item xs={12} md={8}>
-          <Grid container spacing={2}>
-            {mockGeneAssemblies.map((assembly) => (
-              <Grid item xs={12} key={assembly.id}>
-                <Card>
-                  <CardContent>
-                    <Typography variant="h6" gutterBottom>
-                      {assembly.name}
-                    </Typography>
-                    <Grid container spacing={2}>
-                      <Grid item xs={12} md={6}>
-                        <Typography variant="subtitle2">Components:</Typography>
-                        <Typography variant="body2">
-                          {assembly.components.join(', ')}
-                        </Typography>
-                      </Grid>
-                      <Grid item xs={12} md={6}>
-                        <Typography variant="subtitle2">Performance Metrics:</Typography>
-                        <Typography variant="body2">
-                          Stress Tolerance: {(assembly.predictedPerformance.stressTolerance * 100).toFixed(1)}%
-                        </Typography>
-                        <Typography variant="body2">
-                          Growth Rate: {(assembly.predictedPerformance.growthRate * 100).toFixed(1)}%
-                        </Typography>
-                        <Typography variant="body2">
-                          Yield: {(assembly.predictedPerformance.yield * 100).toFixed(1)}%
-                        </Typography>
-                      </Grid>
-                    </Grid>
-                  </CardContent>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
+          {renderAnalysisResults()}
         </Grid>
       </Grid>
     </Box>
